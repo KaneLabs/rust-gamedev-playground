@@ -6,6 +6,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_plugin(HelloPlugin)
         .add_startup_system(spawn_3d_scene)
+        .add_system(keyboard_input_system)
         .run();
 }
 
@@ -79,4 +80,13 @@ fn spawn_3d_scene(
         transform: Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
+}
+
+fn keyboard_input_system(keyboard_input: Res<Input<KeyCode>>) {
+    if keyboard_input.pressed(KeyCode::Left) {
+        info!("'Left' Pressed");
+    }
+    if keyboard_input.pressed(KeyCode::Right) {
+        info!("'Right' Pressed");
+    }
 }
