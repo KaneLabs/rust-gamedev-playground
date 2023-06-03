@@ -4,6 +4,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugin(HelloPlugin)
+        .add_startup_system(spawn_2d_camera)
         .run();
 }
 
@@ -42,4 +43,14 @@ impl Plugin for HelloPlugin {
             .add_startup_system(add_people)
             .add_system(greet_people);
     }
+}
+
+// Cameras
+#[derive(Component)]
+struct MyCamera2D;
+fn spawn_2d_camera(mut commands: Commands) {
+    commands.spawn((
+        Camera2dBundle::default(),
+        MyCamera2D,
+    ));
 }
