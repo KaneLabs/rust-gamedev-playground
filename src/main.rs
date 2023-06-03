@@ -46,9 +46,6 @@ impl Plugin for HelloPlugin {
     }
 }
 
-// Cameras
-#[derive(Component)]
-struct MyCamera3d;
 fn spawn_3d_scene(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
