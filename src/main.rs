@@ -1,12 +1,17 @@
 use bevy::prelude::*;
+use bevy_flycam::prelude::*;
 
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(DefaultPlugins)
         .add_plugin(HelloPlugin)
-        .add_startup_system(spawn_3d_scene)
-        .add_system(keyboard_input_system)
+        .add_plugin(PlayerPlugin)
+        .insert_resource(MovementSettings {
+            sensitivity: 0.00012, // default: 0.00012
+            speed: 12.0,          // default: 12.0
+        })
+        .add_startup_system(setup)
         .run();
 }
 
@@ -47,7 +52,7 @@ impl Plugin for HelloPlugin {
     }
 }
 
-fn spawn_3d_scene(
+fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -75,18 +80,4 @@ fn spawn_3d_scene(
         transform: Transform::from_xyz(4.0, 8.0, 4.0),
         ..default()
     });
-    // camera
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(-2.0, 2.5, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        ..default()
-    });
-}
-
-fn keyboard_input_system(keyboard_input: Res<Input<KeyCode>>) {
-    if keyboard_input.pressed(KeyCode::Left) {
-        info!("'Left' Pressed");
-    }
-    if keyboard_input.pressed(KeyCode::Right) {
-        info!("'Right' Pressed");
-    }
 }
