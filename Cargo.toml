@@ -1,10 +1,15 @@
 [package]
+edition = "2021"
 name = "bevy-playground"
 version = "0.1.0"
-edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 bevy = "0.10.1"
 bevy_flycam = "*"
+bevy_rapier3d = { version = "*", features = [ "simd-stable", "debug-render-3d" ] }
+
+
+[profile.dev.package.bevy_rapier3d]
+opt-level = 3

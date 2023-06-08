@@ -1,17 +1,21 @@
 use bevy::prelude::*;
 use bevy_flycam::prelude::*;
+use bevy_rapier3d::prelude::*;
 
 fn main() {
     App::new()
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(DefaultPlugins)
-        .add_plugin(HelloPlugin)
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
+        .add_plugin(RapierDebugRenderPlugin::default())
         .add_plugin(PlayerPlugin)
         .insert_resource(MovementSettings {
             sensitivity: 0.00012, // default: 0.00012
             speed: 12.0,          // default: 12.0
         })
+        .add_startup_system(setup_physics)
         .add_startup_system(setup)
+        .add_system(print_ball_altitude)
         .run();
 }
 
@@ -57,19 +61,13 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // plane
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(shape::Plane::from_size(5.0).into()),
-        material: materials.add(Color::rgb(0.3, 0.5, 0.3).into()),
-        ..default()
-    });
-    // cube
-    commands.spawn(PbrBundle {
-        mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
-        material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
-        transform: Transform::from_xyz(0.0, 0.5, 0.0),
-        ..default()
-    });
+    // // cube
+    // commands.spawn(PbrBundle {
+    //     mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
+    //     material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
+    //     transform: Transform::from_xyz(0.0, 0.5, 0.0),
+    //     ..default()
+    // });
     // light
     commands.spawn(PointLightBundle {
         point_light: PointLight {
@@ -80,4 +78,28 @@ fn setup(
         transform: Transform::from_xyz(4.0, 8.0, 4.0),
         ..default()
     });
+}
+
+fn setup_physics(
+    mut commands: Commands,
+) {
+    /* Create the ground. */
+    commands
+        .spawn((
+            Collider::cuboid(100.0, 0.1, 100.0),
+        ))
+        .insert(TransformBundle::from(Transform::from_xyz(0.0, -0.1, 0.0)));
+
+    /* Create the bouncing ball. */
+    commands
+        .spawn(RigidBody::Dynamic)
+        .insert(Collider::ball(0.5))
+        .insert(Restitution::coefficient(0.7))
+        .insert(TransformBundle::from(Transform::from_xyz(0.0, 8.0, 0.0)));
+}
+
+fn print_ball_altitude(positions: Query<&Transform, With<RigidBody>>) {
+    for transform in positions.iter() {
+        println!("Ball altitude: {}", transform.translation.y);
+    }
 }
