@@ -3,7 +3,12 @@ edition = "2021"
 name = "bevy-playground"
 version = "0.1.0"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# Settings for fast compile in dev
+[profile.dev]
+opt-level = 0
+
+[profile.dev.package."*"]
+opt-level = 3
 
 [dependencies]
 bevy = "0.10.1"
@@ -11,5 +16,3 @@ bevy_flycam = "*"
 bevy_rapier3d = { version = "*", features = [ "simd-stable", "debug-render-3d" ] }
 
 
-[profile.dev.package.bevy_rapier3d]
-opt-level = 3
