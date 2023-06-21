@@ -20,3 +20,4 @@ bevy_egui = "0.20.0"
 renet_visualizer = {version = "*", features = ["bevy"]}
 smooth-bevy-cameras = "0.8.0"
 fastrand = "1.9.0"
+solana-client = "1.7.17"

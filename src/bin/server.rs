@@ -1,10 +1,17 @@
-use std::{collections::HashMap, f32::consts::PI, net::UdpSocket, time::SystemTime};
+use std::{
+    cell::RefMut, collections::HashMap, f32::consts::PI, net::UdpSocket, ops::Deref,
+    time::SystemTime,
+};
 
 use bevy::{
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     prelude::*,
 };
 use bevy_egui::{EguiContexts, EguiPlugin};
+use bevy_playground::{
+    connection_config, setup_level, spawn_fireball, ClientChannel, NetworkedEntities, Player,
+    PlayerCommand, PlayerInput, Projectile, ServerChannel, ServerMessages, PROTOCOL_ID,
+};
 use bevy_rapier3d::prelude::*;
 use bevy_renet::{
     renet::{
@@ -14,11 +21,48 @@ use bevy_renet::{
     transport::NetcodeServerPlugin,
     RenetServerPlugin,
 };
-use bevy_playground::{
-    connection_config, setup_level, spawn_fireball, ClientChannel, NetworkedEntities, Player, PlayerCommand, PlayerInput, Projectile,
-    ServerChannel, ServerMessages, PROTOCOL_ID,
-};
 use renet_visualizer::RenetServerVisualizer;
+
+use solana_client::rpc_client::RpcClient;
+
+pub const SOLANA_LOCALHOST: &'static str = "http://localhost:8899";
+pub const SOLANA_DEVNET: &'static str = "https://api.devnet.solana.com";
+pub const SOLANA_MAINNET_BETA: &'static str = "https://api.mainnet-beta.solana.com";
+
+pub enum SolanaRpcUrl {
+    Localhost,
+    Devnet,
+    MainnetBeta,
+}
+
+impl SolanaRpcUrl {
+    fn default() -> Self {
+        return SolanaRpcUrl::Localhost;
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            SolanaRpcUrl::Localhost => SOLANA_LOCALHOST,
+            SolanaRpcUrl::Devnet => SOLANA_DEVNET,
+            SolanaRpcUrl::MainnetBeta => SOLANA_MAINNET_BETA,
+        }
+    }
+}
+
+#[derive(Component, Resource)]
+pub struct Solana {
+    pub rpc: SolanaRpcUrl,
+    pub client: RpcClient,
+}
+
+impl Solana {
+    fn default() -> Self {
+        Solana {
+            rpc: SolanaRpcUrl::default(),
+            client: RpcClient::new(SolanaRpcUrl::default().as_str()),
+        }
+    }
+}
 
 #[derive(Debug, Default, Resource)]
 pub struct ServerLobby {
@@ -46,15 +90,111 @@ fn new_renet_server() -> (RenetServer, NetcodeServerTransport) {
         public_addr,
         authentication: ServerAuthentication::Unsecure,
     };
-    let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
+    let current_time = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap();
 
     let transport = NetcodeServerTransport::new(current_time, server_config, socket).unwrap();
 
     (server, transport)
 }
 
+pub struct SolanaPlugin;
+
+impl Plugin for SolanaPlugin {
+    fn build(&self, app: &mut App) {
+        app.insert_resource(LogConnectionsTimer(Timer::from_seconds(
+            1.0,
+            TimerMode::Repeating,
+        )))
+        .insert_resource(Solana::default())
+        // .add_startup_system(add_devnet_connection)
+        .add_startup_system(add_mainnet_connection)
+        .add_system(log_connections_solana);
+    }
+}
+
+fn add_devnet_connection(mut commands: Commands) {
+    println!("Logging connections");
+    commands.spawn(Solana {
+        rpc: SolanaRpcUrl::Devnet,
+        client: RpcClient::new(SolanaRpcUrl::Devnet.as_str()),
+    });
+}
+
+fn add_mainnet_connection(mut commands: Commands) {
+    commands.spawn(Solana {
+        rpc: SolanaRpcUrl::MainnetBeta,
+        client: RpcClient::new(SolanaRpcUrl::MainnetBeta.as_str()),
+    });
+}
+
+#[derive(Resource)]
+struct LogConnectionsTimer(Timer);
+
+#[derive(Debug, Component)]
+struct SolanaSlot {
+    id: u64,
+}
+
+fn log_connections_solana(
+    time: Res<Time>,
+    mut timer: ResMut<LogConnectionsTimer>,
+    query: Query<&Solana>,
+    solana: ResMut<Solana>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if timer.0.tick(time.delta()).just_finished() {
+        println!("Connected to  {}", solana.rpc.as_str());
+        // let epoch = solana.client.get_epoch_info().unwrap();
+        // print!("Current Slot: {}", epoch.slot_index);
+        for solana in &query {
+            println!("Connected to {}", solana.rpc.as_str());
+
+            let epoch = solana.client.get_epoch_info().unwrap();
+            println!("Slot: {}", epoch.absolute_slot);
+            // Spawn new
+            let random_spawn_transform = Transform::from_xyz(
+                (fastrand::f32() - 0.5) * 40.,
+                (fastrand::f32() - 0.5) * 40.,
+                (fastrand::f32() - 0.5) * 40.,
+            );
+
+            let spawn_location_transform = Transform::from_xyz(0.0, 20.0, 0.0);
+
+            let slot_entity = commands
+                .spawn(PbrBundle {
+                    mesh: meshes.add(Mesh::from(shape::Box::new(1.0, 1.0, 1.0))),
+                    material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
+                    transform: spawn_location_transform,
+                    ..Default::default()
+                })
+                .insert(RigidBody::Dynamic)
+                // .insert(LockedAxes::ROTATION_LOCKED | LockedAxes::TRANSLATION_LOCKED_Y)
+                .insert(Collider::cuboid(1.0, 1.0, 1.0))
+                .insert(Restitution::coefficient(0.7))
+                .insert(SolanaSlot {
+                    id: epoch.absolute_slot,
+                })
+                .id();
+
+            // let epoch = solana.client.get_epoch_info().unwrap();
+            // print!("Current Slot: {}", epoch.slot_index);
+
+            // let epoch_info = solana.client.get_epoch_info().unwrap();
+            // println!("Current Epoch {}", epoch_info.epoch);
+            // println!("Current Block Height {}", epoch_info.block_height);
+            // println!("Current Tx Count {}", epoch_info.transaction_count.unwrap());
+            // println!("Current Slot {}", epoch_info.slot_index);
+        }
+    }
+}
+
 fn main() {
     let mut app = App::new();
+
     app.add_plugins(DefaultPlugins);
 
     app.add_plugin(RenetServerPlugin);
@@ -64,6 +204,8 @@ fn main() {
     app.add_plugin(FrameTimeDiagnosticsPlugin::default());
     app.add_plugin(LogDiagnosticsPlugin::default());
     app.add_plugin(EguiPlugin);
+
+    app.add_plugin(SolanaPlugin);
 
     app.insert_resource(ServerLobby::default());
     app.insert_resource(BotId(0));
@@ -122,7 +264,11 @@ fn server_update_system(
                 }
 
                 // Spawn new player
-                let transform = Transform::from_xyz((fastrand::f32() - 0.5) * 40., 0.51, (fastrand::f32() - 0.5) * 40.);
+                let transform = Transform::from_xyz(
+                    (fastrand::f32() - 0.5) * 40.,
+                    0.51,
+                    (fastrand::f32() - 0.5) * 40.,
+                );
                 let player_entity = commands
                     .spawn(PbrBundle {
                         mesh: meshes.add(Mesh::from(shape::Capsule::default())),
@@ -156,7 +302,8 @@ fn server_update_system(
                     commands.entity(player_entity).despawn();
                 }
 
-                let message = bincode::serialize(&ServerMessages::PlayerRemove { id: *client_id }).unwrap();
+                let message =
+                    bincode::serialize(&ServerMessages::PlayerRemove { id: *client_id }).unwrap();
                 server.broadcast_message(ServerChannel::ServerMessages, message);
             }
         }
@@ -167,17 +314,27 @@ fn server_update_system(
             let command: PlayerCommand = bincode::deserialize(&message).unwrap();
             match command {
                 PlayerCommand::BasicAttack { mut cast_at } => {
-                    println!("Received basic attack from client {}: {:?}", client_id, cast_at);
+                    println!(
+                        "Received basic attack from client {}: {:?}",
+                        client_id, cast_at
+                    );
 
                     if let Some(player_entity) = lobby.players.get(&client_id) {
                         if let Ok((_, _, player_transform)) = players.get(*player_entity) {
                             cast_at[1] = player_transform.translation[1];
 
-                            let direction = (cast_at - player_transform.translation).normalize_or_zero();
+                            let direction =
+                                (cast_at - player_transform.translation).normalize_or_zero();
                             let mut translation = player_transform.translation + (direction * 0.7);
                             translation[1] = 1.0;
 
-                            let fireball_entity = spawn_fireball(&mut commands, &mut meshes, &mut materials, translation, direction);
+                            let fireball_entity = spawn_fireball(
+                                &mut commands,
+                                &mut meshes,
+                                &mut materials,
+                                translation,
+                                direction,
+                            );
                             let message = ServerMessages::SpawnProjectile {
                                 entity: fireball_entity,
                                 translation: translation.into(),
@@ -198,7 +355,11 @@ fn server_update_system(
     }
 }
 
-fn update_projectiles_system(mut commands: Commands, mut projectiles: Query<(Entity, &mut Projectile)>, time: Res<Time>) {
+fn update_projectiles_system(
+    mut commands: Commands,
+    mut projectiles: Query<(Entity, &mut Projectile)>,
+    time: Res<Time>,
+) {
     for (entity, mut projectile) in projectiles.iter_mut() {
         projectile.duration.tick(time.delta());
         if projectile.duration.finished() {
@@ -207,17 +368,26 @@ fn update_projectiles_system(mut commands: Commands, mut projectiles: Query<(Ent
     }
 }
 
-fn update_visulizer_system(mut egui_contexts: EguiContexts, mut visualizer: ResMut<RenetServerVisualizer<200>>, server: Res<RenetServer>) {
+fn update_visulizer_system(
+    mut egui_contexts: EguiContexts,
+    mut visualizer: ResMut<RenetServerVisualizer<200>>,
+    server: Res<RenetServer>,
+) {
     visualizer.update(&server);
     visualizer.show_window(egui_contexts.ctx_mut());
 }
 
 #[allow(clippy::type_complexity)]
-fn server_network_sync(mut server: ResMut<RenetServer>, query: Query<(Entity, &Transform), Or<(With<Player>, With<Projectile>)>>) {
+fn server_network_sync(
+    mut server: ResMut<RenetServer>,
+    query: Query<(Entity, &Transform), Or<(With<Player>, With<Projectile>)>>,
+) {
     let mut networked_entities = NetworkedEntities::default();
     for (entity, transform) in query.iter() {
         networked_entities.entities.push(entity);
-        networked_entities.translations.push(transform.translation.into());
+        networked_entities
+            .translations
+            .push(transform.translation.into());
     }
 
     let sync_message = bincode::serialize(&networked_entities).unwrap();
@@ -259,7 +429,10 @@ fn despawn_projectile_system(
     }
 }
 
-fn projectile_on_removal_system(mut server: ResMut<RenetServer>, mut removed_projectiles: RemovedComponents<Projectile>) {
+fn projectile_on_removal_system(
+    mut server: ResMut<RenetServer>,
+    mut removed_projectiles: RemovedComponents<Projectile>,
+) {
     for entity in &mut removed_projectiles {
         let message = ServerMessages::DespawnProjectile { entity };
         let message = bincode::serialize(&message).unwrap();
@@ -281,7 +454,11 @@ fn spawn_bot(
         let client_id = bot_id.0;
         bot_id.0 += 1;
         // Spawn new player
-        let transform = Transform::from_xyz((fastrand::f32() - 0.5) * 40., 0.51, (fastrand::f32() - 0.5) * 40.);
+        let transform = Transform::from_xyz(
+            (fastrand::f32() - 0.5) * 40.,
+            0.51,
+            (fastrand::f32() - 0.5) * 40.,
+        );
         let player_entity = commands
             .spawn(PbrBundle {
                 mesh: meshes.add(Mesh::from(shape::Capsule::default())),
@@ -330,7 +507,13 @@ fn bot_autocast(
             let direction = Vec3::new(direction.x, 0., direction.y).normalize();
             let translation: Vec3 = transform.translation + direction;
 
-            let fireball_entity = spawn_fireball(&mut commands, &mut meshes, &mut materials, translation, direction);
+            let fireball_entity = spawn_fireball(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                translation,
+                direction,
+            );
             let message = ServerMessages::SpawnProjectile {
                 entity: fireball_entity,
                 translation: translation.into(),
