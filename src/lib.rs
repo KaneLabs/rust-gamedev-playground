@@ -157,6 +157,11 @@ pub fn spawn_fireball(
     if !direction.is_normalized() {
         direction = Vec3::X;
     }
+
+    // let collider_mprops = ColliderMassProperties::Density(2.0);
+    // // Second option: by setting the mass of the collider.
+    // let collider_mprops = ColliderMassProperties::Mass(0.8);
+
     commands
         .spawn(PbrBundle {
             mesh: meshes.add(
@@ -171,8 +176,8 @@ pub fn spawn_fireball(
             ..Default::default()
         })
         .insert(RigidBody::Dynamic)
-        .insert(LockedAxes::ROTATION_LOCKED | LockedAxes::TRANSLATION_LOCKED_Y)
-        // .insert(Collider::ball(0.1))
+        // .insert(LockedAxes::ROTATION_LOCKED | LockedAxes::TRANSLATION_LOCKED_Y)
+        .insert(Collider::ball(0.1))
         .insert(Velocity::linear(direction * 10.))
         .insert(ActiveEvents::COLLISION_EVENTS)
         .insert(Projectile {

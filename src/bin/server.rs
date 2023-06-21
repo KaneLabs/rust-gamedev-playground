@@ -133,7 +133,7 @@ fn add_mainnet_connection(mut commands: Commands) {
 struct LogConnectionsTimer(Timer);
 
 #[derive(Debug, Component)]
-struct SolanaSlot {
+pub struct SolanaSlotBlock {
     id: u64,
 }
 
@@ -175,7 +175,7 @@ fn log_connections_solana(
                 // .insert(LockedAxes::ROTATION_LOCKED | LockedAxes::TRANSLATION_LOCKED_Y)
                 .insert(Collider::cuboid(1.0, 1.0, 1.0))
                 .insert(Restitution::coefficient(0.7))
-                .insert(SolanaSlot {
+                .insert(SolanaSlotBlock {
                     id: epoch.absolute_slot,
                 })
                 .id();
@@ -222,7 +222,7 @@ fn main() {
         move_players_system,
         update_projectiles_system,
         update_visulizer_system,
-        despawn_projectile_system,
+        projectile_collision_system,
         spawn_bot,
         bot_autocast,
     ));
@@ -412,19 +412,33 @@ pub fn setup_simple_camera(mut commands: Commands) {
     });
 }
 
-fn despawn_projectile_system(
+fn projectile_collision_system(
     mut commands: Commands,
     mut collision_events: EventReader<CollisionEvent>,
     projectile_query: Query<Option<&Projectile>>,
+    solana_entity_query: Query<Option<&SolanaSlotBlock>>,
 ) {
     for collision_event in collision_events.iter() {
         if let CollisionEvent::Started(entity1, entity2, _) = collision_event {
+            // let entity1Id = commands.entity(*entity1).id();
+            // let entity2Id = commands.entity(*entity2).id();
+
+            // commands.entity(entity2Id).despawn();
+
             if let Ok(Some(_)) = projectile_query.get(*entity1) {
-                commands.entity(*entity1).despawn();
+                println!("Projectile Collision Event Started");
+                // commands.entity(*entity2).despawn();
             }
             if let Ok(Some(_)) = projectile_query.get(*entity2) {
-                commands.entity(*entity2).despawn();
+                println!("Projectile Collision Event Started");
+                if let Ok(Some(_)) = solana_entity_query.get(*entity1) {
+                    commands.entity(*entity1).despawn();
+                }
             }
+
+            
+        } else if let CollisionEvent::Stopped(e1,e2,_) = collision_event {
+            println!("Collision Event Stopped");
         }
     }
 }
