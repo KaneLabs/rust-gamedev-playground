@@ -1,6 +1,6 @@
 use std::{f32::consts::PI, time::Duration};
 
-use bevy::prelude::{shape::Icosphere, *};
+use bevy::{input::mouse::MouseWheel, prelude::{shape::Icosphere, *}};
 use bevy_rapier3d::prelude::*;
 use bevy_renet::renet::{transport::NETCODE_KEY_BYTES, ChannelConfig, ConnectionConfig, SendType};
 use serde::{Deserialize, Serialize};
@@ -13,6 +13,11 @@ pub struct Player {
     pub id: u64,
 }
 
+#[derive(Debug, Component)]
+pub struct SolanaSlotBlock {
+    pub id: u64,
+}
+
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, Component, Resource)]
 pub struct PlayerInput {
     pub up: bool,
@@ -20,6 +25,12 @@ pub struct PlayerInput {
     pub left: bool,
     pub right: bool,
 }
+
+#[derive(Debug, Component)]
+pub struct WoodBlock {
+    pub id: u64,
+}
+
 
 #[derive(Debug, Serialize, Deserialize, Component)]
 pub enum PlayerCommand {
@@ -38,10 +49,29 @@ pub enum ServerChannel {
 
 #[derive(Debug, Serialize, Deserialize, Component)]
 pub enum ServerMessages {
-    PlayerCreate { entity: Entity, id: u64, translation: [f32; 3] },
-    PlayerRemove { id: u64 },
-    SpawnProjectile { entity: Entity, translation: [f32; 3] },
-    DespawnProjectile { entity: Entity },
+    PlayerCreate {
+        entity: Entity,
+        id: u64,
+        translation: [f32; 3],
+    },
+    PlayerRemove {
+        id: u64,
+    },
+    SpawnProjectile {
+        entity: Entity,
+        translation: [f32; 3],
+    },
+    DespawnProjectile {
+        entity: Entity,
+    },
+    SpawnSolanaBlock {
+        entity: Entity,
+        transform: (f32, f32, f32),
+        slot: u64,
+    },
+    DespawnSolanaBlock {
+        entity: Entity,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -117,16 +147,21 @@ pub fn connection_config() -> ConnectionConfig {
 }
 
 /// set up a simple 3D scene
-pub fn setup_level(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut materials: ResMut<Assets<StandardMaterial>>) {
+pub fn setup_level(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
     // plane
     commands
         .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Box::new(40., 1., 40.))),
+            mesh: meshes.add(Mesh::from(shape::Box::new(400., 1., 400.))),
             material: materials.add(Color::rgb(0.3, 0.5, 0.3).into()),
             transform: Transform::from_xyz(0.0, -1.0, 0.0),
             ..Default::default()
         })
         .insert(Collider::cuboid(20., 0.5, 20.));
+
     // light
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
@@ -184,4 +219,26 @@ pub fn spawn_fireball(
             duration: Timer::from_seconds(1.5, TimerMode::Once),
         })
         .id()
+}
+
+
+pub fn camera_zoom_system(
+    mut mouse_wheel_events: EventReader<MouseWheel>,
+    mut query: Query<&mut Transform, With<Camera>>,
+) {
+    // Zoom
+    let mut zoom_delta = 0.0;
+    for event in mouse_wheel_events.iter() {
+        zoom_delta += event.y;
+    }
+
+    if zoom_delta != 0.0 {
+        let zoom_speed = 0.5; // Adjust this value to make zoom faster or slower
+        for mut transform in query.iter_mut() {
+            // Calculate the forward vector from the camera's rotation
+            let forward = transform.rotation * Vec3::Z;
+            // Move the camera along the forward vector
+            transform.translation -= forward * zoom_delta * zoom_speed;
+        }
+    }
 }

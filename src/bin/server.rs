@@ -1,16 +1,13 @@
-use std::{
-    cell::RefMut, collections::HashMap, f32::consts::PI, net::UdpSocket, ops::Deref,
-    time::SystemTime,
-};
+use std::{collections::HashMap, f32::consts::PI, net::UdpSocket, time::SystemTime};
 
 use bevy::{
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    input::mouse::MouseWheel,
     prelude::*,
 };
 use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_playground::{
-    connection_config, setup_level, spawn_fireball, ClientChannel, NetworkedEntities, Player,
-    PlayerCommand, PlayerInput, Projectile, ServerChannel, ServerMessages, PROTOCOL_ID,
+    camera_zoom_system, connection_config, setup_level, spawn_fireball, ClientChannel, NetworkedEntities, Player, PlayerCommand, PlayerInput, Projectile, ServerChannel, ServerMessages, SolanaSlotBlock, PROTOCOL_ID
 };
 use bevy_rapier3d::prelude::*;
 use bevy_renet::{
@@ -110,16 +107,8 @@ impl Plugin for SolanaPlugin {
         .insert_resource(Solana::default())
         // .add_startup_system(add_devnet_connection)
         .add_startup_system(add_mainnet_connection)
-        .add_system(log_connections_solana);
+        .add_system(spawn_solana_blocks);
     }
-}
-
-fn add_devnet_connection(mut commands: Commands) {
-    println!("Logging connections");
-    commands.spawn(Solana {
-        rpc: SolanaRpcUrl::Devnet,
-        client: RpcClient::new(SolanaRpcUrl::Devnet.as_str()),
-    });
 }
 
 fn add_mainnet_connection(mut commands: Commands) {
@@ -132,39 +121,27 @@ fn add_mainnet_connection(mut commands: Commands) {
 #[derive(Resource)]
 struct LogConnectionsTimer(Timer);
 
-#[derive(Debug, Component)]
-pub struct SolanaSlotBlock {
-    id: u64,
-}
-
-fn log_connections_solana(
+fn spawn_solana_blocks(
     time: Res<Time>,
     mut timer: ResMut<LogConnectionsTimer>,
     query: Query<&Solana>,
     solana: ResMut<Solana>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut server: ResMut<RenetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
         println!("Connected to  {}", solana.rpc.as_str());
-        // let epoch = solana.client.get_epoch_info().unwrap();
-        // print!("Current Slot: {}", epoch.slot_index);
-        for solana in &query {
-            println!("Connected to {}", solana.rpc.as_str());
 
+        // Run for each connected solana rpc
+        for solana in &query {
             let epoch = solana.client.get_epoch_info().unwrap();
-            println!("Slot: {}", epoch.absolute_slot);
-            // Spawn new
-            let random_spawn_transform = Transform::from_xyz(
-                (fastrand::f32() - 0.5) * 40.,
-                (fastrand::f32() - 0.5) * 40.,
-                (fastrand::f32() - 0.5) * 40.,
-            );
 
             let spawn_location_transform = Transform::from_xyz(0.0, 20.0, 0.0);
 
-            let slot_entity = commands
+            // Spawn new
+            let entity: Entity = commands
                 .spawn(PbrBundle {
                     mesh: meshes.add(Mesh::from(shape::Box::new(1.0, 1.0, 1.0))),
                     material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
@@ -180,14 +157,14 @@ fn log_connections_solana(
                 })
                 .id();
 
-            // let epoch = solana.client.get_epoch_info().unwrap();
-            // print!("Current Slot: {}", epoch.slot_index);
+            let message = ServerMessages::SpawnSolanaBlock {
+                entity: entity,
+                transform: (0.0, 20.0, 0.0),
+                slot: epoch.absolute_slot,
+            };
 
-            // let epoch_info = solana.client.get_epoch_info().unwrap();
-            // println!("Current Epoch {}", epoch_info.epoch);
-            // println!("Current Block Height {}", epoch_info.block_height);
-            // println!("Current Tx Count {}", epoch_info.transaction_count.unwrap());
-            // println!("Current Slot {}", epoch_info.slot_index);
+            let message = bincode::serialize(&message).unwrap();
+            server.broadcast_message(ServerChannel::ServerMessages, message);
         }
     }
 }
@@ -228,8 +205,10 @@ fn main() {
     ));
 
     app.add_system(projectile_on_removal_system.in_base_set(CoreSet::PostUpdate));
-
+    app.add_system(solana_block_on_removal_system.in_base_set(CoreSet::PostUpdate));
     app.add_startup_systems((setup_level, setup_simple_camera));
+    app.add_system(camera_zoom_system);
+    app.add_system(camera_movement_system);
 
     app.run();
 }
@@ -380,7 +359,7 @@ fn update_visulizer_system(
 #[allow(clippy::type_complexity)]
 fn server_network_sync(
     mut server: ResMut<RenetServer>,
-    query: Query<(Entity, &Transform), Or<(With<Player>, With<Projectile>)>>,
+    query: Query<(Entity, &Transform), Or<(With<Player>, With<Projectile>, With<SolanaSlotBlock>)>>,
 ) {
     let mut networked_entities = NetworkedEntities::default();
     for (entity, transform) in query.iter() {
@@ -404,10 +383,37 @@ fn move_players_system(mut query: Query<(&mut Velocity, &PlayerInput)>) {
     }
 }
 
+fn camera_movement_system(
+    time: Res<Time>,
+    keyboard_input: Res<Input<KeyCode>>,
+    mut query: Query<&mut Transform, With<Camera>>,
+) {
+    let mut direction = Vec3::ZERO;
+    if keyboard_input.pressed(KeyCode::W) {
+        direction.z -= 1.0;
+    }
+    if keyboard_input.pressed(KeyCode::S) {
+        direction.z += 1.0;
+    }
+    if keyboard_input.pressed(KeyCode::A) {
+        direction.x -= 1.0;
+    }
+    if keyboard_input.pressed(KeyCode::D) {
+        direction.x += 1.0;
+    }
+
+    if direction != Vec3::ZERO {
+        let speed = 50.0; // Adjust the speed as needed
+        for mut transform in query.iter_mut() {
+            transform.translation += speed * direction.normalize() * time.delta_seconds();
+        }
+    }
+}
+
 pub fn setup_simple_camera(mut commands: Commands) {
     // camera
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(-20.5, 30.0, 20.5).looking_at(Vec3::ZERO, Vec3::Y),
+        transform: Transform::from_xyz(0., 30.0, 20.5).looking_at(Vec3::ZERO, Vec3::Y),
         ..Default::default()
     });
 }
@@ -424,9 +430,13 @@ fn projectile_collision_system(
             // let entity2Id = commands.entity(*entity2).id();
 
             // commands.entity(entity2Id).despawn();
+            println!("Projectile Collision Event Started");
 
             if let Ok(Some(_)) = projectile_query.get(*entity1) {
                 println!("Projectile Collision Event Started");
+                if let Ok(Some(_)) = solana_entity_query.get(*entity1) {
+                    commands.entity(*entity2).despawn();
+                }
                 // commands.entity(*entity2).despawn();
             }
             if let Ok(Some(_)) = projectile_query.get(*entity2) {
@@ -435,9 +445,7 @@ fn projectile_collision_system(
                     commands.entity(*entity1).despawn();
                 }
             }
-
-            
-        } else if let CollisionEvent::Stopped(e1,e2,_) = collision_event {
+        } else if let CollisionEvent::Stopped(e1, e2, _) = collision_event {
             println!("Collision Event Stopped");
         }
     }
@@ -449,6 +457,18 @@ fn projectile_on_removal_system(
 ) {
     for entity in &mut removed_projectiles {
         let message = ServerMessages::DespawnProjectile { entity };
+        let message = bincode::serialize(&message).unwrap();
+
+        server.broadcast_message(ServerChannel::ServerMessages, message);
+    }
+}
+
+fn solana_block_on_removal_system(
+    mut server: ResMut<RenetServer>,
+    mut removed_projectiles: RemovedComponents<SolanaSlotBlock>,
+) {
+    for entity in &mut removed_projectiles {
+        let message = ServerMessages::DespawnSolanaBlock { entity };
         let message = bincode::serialize(&message).unwrap();
 
         server.broadcast_message(ServerChannel::ServerMessages, message);

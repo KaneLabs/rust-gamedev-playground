@@ -376,6 +376,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_egui",
+ "bevy_flycam",
  "bevy_rapier3d",
  "bevy_renet",
  "bincode",
@@ -554,6 +555,15 @@ checksum = "c086ebdc1f5522787d63772943277cc74a279445fb65db4d58c2c5330654648e"
 dependencies = [
  "bevy_macro_utils",
  "encase_derive_impl",
+]
+
+[[package]]
+name = "bevy_flycam"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b624150f4d28b8f03d924ed3d329d9765756c02c5652001b3c34f52b33fd235a"
+dependencies = [
+ "bevy",
 ]
 
 [[package]]
