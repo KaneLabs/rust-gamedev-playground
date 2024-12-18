@@ -1,9 +1,9 @@
-# fly.toml app configuration file generated for bevy-solana-little-log-5090 on 2024-12-18T18:33:32+08:00
+# fly.toml app configuration file generated for bevy-solana-summer-voice-6534 on 2024-12-18T18:51:54+08:00
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'bevy-solana-little-log-5090'
+app = 'bevy-solana-summer-voice-6534'
 primary_region = 'sea'
 
 [build]

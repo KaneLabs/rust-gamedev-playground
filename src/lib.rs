@@ -486,3 +486,47 @@ impl Plugin for NoCameraPlayerPlugin {
 pub fn get_server_addr() -> String {
     option_env!("SERVER_ADDR").unwrap_or("127.0.0.1:7777").to_string()
 }
+
+// Add this for server-side spawning
+pub fn spawn_fireball_server(
+    commands: &mut Commands,
+    translation: Vec3,
+    direction: Vec3,
+) -> Entity {
+    commands
+        .spawn((
+            TransformBundle::from_transform(Transform::from_translation(translation)),
+            Projectile {
+                duration: Timer::from_seconds(1.5, TimerMode::Once),
+            },
+        ))
+        .insert(RigidBody::Dynamic)
+        .insert(Collider::ball(0.1))
+        .insert(Velocity::linear(direction * 10.))
+        .insert(ActiveEvents::COLLISION_EVENTS)
+        .id()
+}
+
+// Add this new function
+pub fn setup_level_server(mut commands: Commands) {
+    // Ground plane
+    commands
+        .spawn(TransformBundle::from_transform(Transform::from_xyz(0.0, -0.5, 0.0)))
+        .insert(RigidBody::Fixed)
+        .insert(Collider::cuboid(50.0, 0.1, 50.0));
+
+    // Walls
+    let wall_positions = [
+        Vec3::new(-50.0, 0.0, 0.0),   // Left
+        Vec3::new(50.0, 0.0, 0.0),    // Right
+        Vec3::new(0.0, 0.0, -50.0),   // Back
+        Vec3::new(0.0, 0.0, 50.0),    // Front
+    ];
+
+    for position in wall_positions {
+        commands
+            .spawn(TransformBundle::from_transform(Transform::from_translation(position)))
+            .insert(RigidBody::Fixed)
+            .insert(Collider::cuboid(1.0, 10.0, 50.0));
+    }
+}

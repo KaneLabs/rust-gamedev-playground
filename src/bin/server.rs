@@ -235,10 +235,7 @@ fn main() {
     app.add_system(projectile_on_removal_system.in_base_set(CoreSet::PostUpdate));
     app.add_system(solana_block_on_removal_system.in_base_set(CoreSet::PostUpdate));
     app.add_startup_system(setup_level);
-    
-    // Server Side Camera
-    #[cfg(debug_assertions)]
-    {
+    #[cfg(debug_assertions)] {
         app.add_system(camera_zoom_system);
         app.add_system(camera_movement_system);
     }
