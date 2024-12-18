@@ -195,8 +195,11 @@ fn main() {
     }
     #[cfg(not(debug_assertions))]
     {
-        app.add_plugins(MinimalPlugins)
-            .add_plugin(AssetPlugin::default());
+        app.add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: None,
+            close_when_requested: false,
+            exit_condition: ExitCondition::DontExit,
+        }));
     }
 
     app.add_plugin(RenetServerPlugin);
