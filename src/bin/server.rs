@@ -196,10 +196,7 @@ fn main() {
     #[cfg(not(debug_assertions))]
     {
         app.add_plugins(MinimalPlugins)
-            .add_plugin(AssetPlugin::default())
-            .add_plugin(TaskPoolPlugin::default())
-            .add_plugin(TypeRegistrationPlugin::default())
-            .add_plugin(FrameCountPlugin::default());
+            .add_plugin(AssetPlugin::default());
     }
 
     app.add_plugin(RenetServerPlugin);

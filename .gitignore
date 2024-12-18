@@ -1,3 +1,6 @@
 # Generated files
 /target/
 test-ledger
+
+# macOS
+.DS_Store
