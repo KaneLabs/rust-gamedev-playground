@@ -2,12 +2,13 @@ use std::{collections::HashMap, f32::consts::PI, net::UdpSocket, time::SystemTim
 
 use bevy::{
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
-    input::mouse::MouseWheel,
     prelude::*,
 };
 use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_playground::{
-    camera_zoom_system, connection_config, setup_level, spawn_fireball, ClientChannel, NetworkedEntities, Player, PlayerCommand, PlayerInput, Projectile, ServerChannel, ServerMessages, SolanaSlotBlock, PROTOCOL_ID
+    camera_zoom_system, connection_config, setup_level, spawn_fireball, ClientChannel,
+    NetworkedEntities, Player, PlayerCommand, PlayerInput, Projectile, ServerChannel,
+    ServerMessages, SolanaSlotBlock, PROTOCOL_ID,
 };
 use bevy_rapier3d::prelude::*;
 use bevy_renet::{
@@ -50,6 +51,7 @@ impl SolanaRpcUrl {
 pub struct Solana {
     pub rpc: SolanaRpcUrl,
     pub client: RpcClient,
+    pub faucet_on: bool,
 }
 
 impl Solana {
@@ -57,6 +59,7 @@ impl Solana {
         Solana {
             rpc: SolanaRpcUrl::default(),
             client: RpcClient::new(SolanaRpcUrl::default().as_str()),
+            faucet_on: false,
         }
     }
 }
@@ -101,7 +104,7 @@ pub struct SolanaPlugin;
 impl Plugin for SolanaPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(LogConnectionsTimer(Timer::from_seconds(
-            1.0,
+            30.0,
             TimerMode::Repeating,
         )))
         .insert_resource(Solana::default())
@@ -115,6 +118,7 @@ fn add_mainnet_connection(mut commands: Commands) {
     commands.spawn(Solana {
         rpc: SolanaRpcUrl::MainnetBeta,
         client: RpcClient::new(SolanaRpcUrl::MainnetBeta.as_str()),
+        faucet_on: true,
     });
 }
 
@@ -131,40 +135,47 @@ fn spawn_solana_blocks(
     mut server: ResMut<RenetServer>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    // Runs after first tick
     if timer.0.tick(time.delta()).just_finished() {
         println!("Connected to  {}", solana.rpc.as_str());
 
-        // Run for each connected solana rpc
+        // Run for each connected solana rpc if it is on
         for solana in &query {
-            let epoch = solana.client.get_epoch_info().unwrap();
+            if solana.faucet_on {
+                let epoch = solana.client.get_epoch_info().unwrap();
+                println!("Spawning Solana block for slot: {}", epoch.absolute_slot);
 
-            let spawn_location_transform = Transform::from_xyz(0.0, 20.0, 0.0);
+                let spawn_location_transform = Transform::from_xyz(0.0, 20.0, 0.0);
+                println!("Spawn location: {:?}", spawn_location_transform.translation);
 
-            // Spawn new
-            let entity: Entity = commands
-                .spawn(PbrBundle {
-                    mesh: meshes.add(Mesh::from(shape::Box::new(1.0, 1.0, 1.0))),
-                    material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
-                    transform: spawn_location_transform,
-                    ..Default::default()
-                })
-                .insert(RigidBody::Dynamic)
-                // .insert(LockedAxes::ROTATION_LOCKED | LockedAxes::TRANSLATION_LOCKED_Y)
-                .insert(Collider::cuboid(1.0, 1.0, 1.0))
-                .insert(Restitution::coefficient(0.7))
-                .insert(SolanaSlotBlock {
-                    id: epoch.absolute_slot,
-                })
-                .id();
+                // Spawn new
+                let entity: Entity = commands
+                    .spawn(PbrBundle {
+                        mesh: meshes.add(Mesh::from(shape::Box::new(1.0, 1.0, 1.0))),
+                        material: materials.add(Color::rgb(0.8, 0.7, 0.6).into()),
+                        transform: spawn_location_transform,
+                        ..Default::default()
+                    })
+                    .insert(RigidBody::Dynamic)
+                    .insert(Collider::cuboid(1.0, 1.0, 1.0))
+                    .insert(Restitution::coefficient(0.7))
+                    .insert(SolanaSlotBlock {
+                        id: epoch.absolute_slot,
+                    })
+                    .id();
 
-            let message = ServerMessages::SpawnSolanaBlock {
-                entity: entity,
-                transform: (0.0, 20.0, 0.0),
-                slot: epoch.absolute_slot,
-            };
+                println!("Created Solana block entity: {:?}", entity);
 
-            let message = bincode::serialize(&message).unwrap();
-            server.broadcast_message(ServerChannel::ServerMessages, message);
+                let message = ServerMessages::SpawnSolanaBlock {
+                    entity: entity,
+                    transform: (0.0, 20.0, 0.0),
+                    slot: epoch.absolute_slot,
+                };
+
+                let message = bincode::serialize(&message).unwrap();
+                server.broadcast_message(ServerChannel::ServerMessages, message);
+                println!("Broadcasted Solana block spawn message");
+            }
         }
     }
 }
@@ -373,13 +384,10 @@ fn server_network_sync(
     server.broadcast_message(ServerChannel::NetworkedEntities, sync_message);
 }
 
-fn move_players_system(mut query: Query<(&mut Velocity, &PlayerInput)>) {
-    for (mut velocity, input) in query.iter_mut() {
-        let x = (input.right as i8 - input.left as i8) as f32;
-        let y = (input.down as i8 - input.up as i8) as f32;
-        let direction = Vec2::new(x, y).normalize_or_zero();
-        velocity.linvel.x = direction.x * PLAYER_MOVE_SPEED;
-        velocity.linvel.z = direction.y * PLAYER_MOVE_SPEED;
+fn move_players_system(mut query: Query<(&mut Transform, &PlayerInput), With<Player>>) {
+    for (mut transform, input) in query.iter_mut() {
+        // Update the player's position based on the camera position
+        transform.translation = Vec3::from(input.position);
     }
 }
 
