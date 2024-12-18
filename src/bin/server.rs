@@ -3,12 +3,12 @@ use std::{collections::HashMap, f32::consts::PI, net::UdpSocket, time::SystemTim
 use bevy::{
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     prelude::*,
+    window::ExitCondition,
 };
-use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_playground::{
-    camera_zoom_system, connection_config, setup_level, spawn_fireball, ClientChannel,
-    NetworkedEntities, Player, PlayerCommand, PlayerInput, Projectile, ServerChannel,
-    ServerMessages, SolanaSlotBlock, PROTOCOL_ID,
+    camera_zoom_system, connection_config, get_server_addr, setup_level, spawn_fireball,
+    ClientChannel, NetworkedEntities, Player, PlayerCommand, PlayerInput, Projectile,
+    ServerChannel, ServerMessages, SolanaSlotBlock, PROTOCOL_ID,
 };
 use bevy_rapier3d::prelude::*;
 use bevy_renet::{
@@ -19,9 +19,13 @@ use bevy_renet::{
     transport::NetcodeServerPlugin,
     RenetServerPlugin,
 };
-use renet_visualizer::RenetServerVisualizer;
 
 use solana_client::rpc_client::RpcClient;
+
+#[cfg(debug_assertions)]
+use bevy_egui::{EguiContexts, EguiPlugin};
+#[cfg(debug_assertions)]
+use renet_visualizer::RenetServerVisualizer;
 
 pub const SOLANA_LOCALHOST: &'static str = "http://localhost:8899";
 pub const SOLANA_DEVNET: &'static str = "https://api.devnet.solana.com";
@@ -82,7 +86,7 @@ struct BotId(u64);
 fn new_renet_server() -> (RenetServer, NetcodeServerTransport) {
     let server = RenetServer::new(connection_config());
 
-    let public_addr = "127.0.0.1:5000".parse().unwrap();
+    let public_addr = get_server_addr().parse().unwrap();
     let socket = UdpSocket::bind(public_addr).unwrap();
     let server_config = ServerConfig {
         max_clients: 64,
@@ -183,25 +187,40 @@ fn spawn_solana_blocks(
 fn main() {
     let mut app = App::new();
 
-    app.add_plugins(DefaultPlugins);
+    #[cfg(debug_assertions)]
+    {
+        app.add_plugins(DefaultPlugins);
+        app.add_plugin(RapierDebugRenderPlugin::default());
+        app.add_plugin(EguiPlugin);
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        app.add_plugins(MinimalPlugins)
+            .add_plugin(AssetPlugin::default())
+            .add_plugin(TaskPoolPlugin::default())
+            .add_plugin(TypeRegistrationPlugin::default())
+            .add_plugin(FrameCountPlugin::default());
+    }
 
     app.add_plugin(RenetServerPlugin);
     app.add_plugin(NetcodeServerPlugin);
     app.add_plugin(RapierPhysicsPlugin::<NoUserData>::default());
-    app.add_plugin(RapierDebugRenderPlugin::default());
     app.add_plugin(FrameTimeDiagnosticsPlugin::default());
     app.add_plugin(LogDiagnosticsPlugin::default());
-    app.add_plugin(EguiPlugin);
 
     app.add_plugin(SolanaPlugin);
 
     app.insert_resource(ServerLobby::default());
     app.insert_resource(BotId(0));
 
+    #[cfg(debug_assertions)]
+    app.add_plugin(EguiPlugin);
+
     let (server, transport) = new_renet_server();
     app.insert_resource(server);
     app.insert_resource(transport);
 
+    #[cfg(debug_assertions)]
     app.insert_resource(RenetServerVisualizer::<200>::default());
 
     app.add_systems((
@@ -209,7 +228,8 @@ fn main() {
         server_network_sync,
         move_players_system,
         update_projectiles_system,
-        update_visulizer_system,
+        #[cfg(debug_assertions)]
+        update_visualizer_system,
         projectile_collision_system,
         spawn_bot,
         bot_autocast,
@@ -217,8 +237,10 @@ fn main() {
 
     app.add_system(projectile_on_removal_system.in_base_set(CoreSet::PostUpdate));
     app.add_system(solana_block_on_removal_system.in_base_set(CoreSet::PostUpdate));
-    app.add_startup_systems((setup_level, setup_simple_camera));
+    app.add_startup_system(setup_level);
+    #[cfg(debug_assertions)]
     app.add_system(camera_zoom_system);
+    #[cfg(debug_assertions)]
     app.add_system(camera_movement_system);
 
     app.run();
@@ -232,14 +254,12 @@ fn server_update_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut lobby: ResMut<ServerLobby>,
     mut server: ResMut<RenetServer>,
-    mut visualizer: ResMut<RenetServerVisualizer<200>>,
     players: Query<(Entity, &Player, &Transform)>,
 ) {
     for event in server_events.iter() {
         match event {
             ServerEvent::ClientConnected { client_id } => {
                 println!("Player {} connected.", client_id);
-                visualizer.add_client(*client_id);
 
                 // Initialize other players for this new client
                 for (entity, player, transform) in players.iter() {
@@ -287,7 +307,6 @@ fn server_update_system(
             }
             ServerEvent::ClientDisconnected { client_id, reason } => {
                 println!("Player {} disconnected: {}", client_id, reason);
-                visualizer.remove_client(*client_id);
                 if let Some(player_entity) = lobby.players.remove(client_id) {
                     commands.entity(player_entity).despawn();
                 }
@@ -356,15 +375,6 @@ fn update_projectiles_system(
             commands.entity(entity).despawn();
         }
     }
-}
-
-fn update_visulizer_system(
-    mut egui_contexts: EguiContexts,
-    mut visualizer: ResMut<RenetServerVisualizer<200>>,
-    server: Res<RenetServer>,
-) {
-    visualizer.update(&server);
-    visualizer.show_window(egui_contexts.ctx_mut());
 }
 
 #[allow(clippy::type_complexity)]
@@ -564,4 +574,14 @@ fn bot_autocast(
             server.broadcast_message(ServerChannel::ServerMessages, message);
         }
     }
+}
+
+#[cfg(debug_assertions)]
+fn update_visualizer_system(
+    mut egui_contexts: EguiContexts,
+    mut visualizer: ResMut<RenetServerVisualizer<200>>,
+    server: Res<RenetServer>,
+) {
+    visualizer.update(&server);
+    visualizer.show_window(egui_contexts.ctx_mut());
 }

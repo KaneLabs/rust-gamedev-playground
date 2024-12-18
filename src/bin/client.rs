@@ -8,7 +8,7 @@ use bevy_egui::{EguiContexts, EguiPlugin};
 use bevy_flycam::{FlyCam, NoCameraPlayerPlugin, MovementSettings};
 
 use bevy_playground::{
-    connection_config, setup_level, ClientChannel, NetworkedEntities, PlayerCommand, PlayerInput, ServerChannel, ServerMessages, SolanaSlotBlock, PROTOCOL_ID
+    connection_config, get_server_addr, setup_level, ClientChannel, NetworkedEntities, PlayerCommand, PlayerInput, ServerChannel, ServerMessages, SolanaSlotBlock, PROTOCOL_ID
 };
 use bevy_rapier3d::prelude::{Collider, Restitution, RigidBody};
 use bevy_renet::{
@@ -42,11 +42,11 @@ struct ClientLobby {
     players: HashMap<u64, PlayerInfo>,
 }
 
+
 fn new_renet_client() -> (RenetClient, NetcodeClientTransport) {
     let client = RenetClient::new(connection_config());
-
-    let server_addr = "127.0.0.1:5000".parse().unwrap();
-    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let server_addr = get_server_addr().parse().unwrap();
+    let socket = UdpSocket::bind("0.0.0.0:0").unwrap(); // Bind to any available port
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();

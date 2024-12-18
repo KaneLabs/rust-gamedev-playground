@@ -1,0 +1,33 @@
+# fly.toml app configuration file generated for bevy-solana-thrumming-sunset-7623 on 2024-12-18T17:44:37+08:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'bevy-solana-thrumming-sunset-7623'
+primary_region = 'sea'
+
+[build]
+
+[env]
+  PORT = '7777'
+
+[http_service]
+  internal_port = 7777
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[services]]
+  protocol = 'udp'
+  internal_port = 7777
+  processes = ['app']
+
+  [[services.ports]]
+    port = 7777
+
+[[vm]]
+  memory = '8gb'
+  cpu_kind = 'shared'
+  cpus = 4

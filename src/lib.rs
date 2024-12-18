@@ -1,6 +1,9 @@
 use std::{f32::consts::PI, time::Duration};
 
-use bevy::{input::mouse::MouseWheel, prelude::{shape::Icosphere, *}};
+use bevy::{
+    input::mouse::MouseWheel,
+    prelude::{shape::Icosphere, *},
+};
 use bevy_rapier3d::prelude::*;
 use bevy_renet::renet::{transport::NETCODE_KEY_BYTES, ChannelConfig, ConnectionConfig, SendType};
 use serde::{Deserialize, Serialize};
@@ -31,7 +34,6 @@ pub struct PlayerInput {
 pub struct WoodBlock {
     pub id: u64,
 }
-
 
 #[derive(Debug, Serialize, Deserialize, Component)]
 pub enum PlayerCommand {
@@ -221,7 +223,6 @@ pub fn spawn_fireball(
         })
         .id()
 }
-
 
 pub fn camera_zoom_system(
     mut mouse_wheel_events: EventReader<MouseWheel>,
@@ -480,4 +481,8 @@ impl Plugin for NoCameraPlayerPlugin {
             .add_system(player_look)
             .add_system(cursor_grab);
     }
+}
+
+pub fn get_server_addr() -> String {
+    option_env!("SERVER_ADDR").unwrap_or("127.0.0.1:7777").to_string()
 }
