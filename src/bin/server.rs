@@ -25,24 +25,24 @@ use solana_client::rpc_client::RpcClient;
 
 pub const SOLANA_LOCALHOST: &'static str = "http://localhost:8899";
 pub const SOLANA_DEVNET: &'static str = "https://api.devnet.solana.com";
-pub const SOLANA_MAINNET_BETA: &'static str = "https://api.mainnet-beta.solana.com";
+pub const SOLANA_MAINNET: &'static str = "https://api.mainnet-beta.solana.com";
 
 pub enum SolanaRpcUrl {
     Localhost,
     Devnet,
-    MainnetBeta,
+    Mainnet,
 }
 
 impl SolanaRpcUrl {
     fn default() -> Self {
-        return SolanaRpcUrl::Localhost;
+        return SolanaRpcUrl::Mainnet;
     }
 
     fn as_str(&self) -> &'static str {
         match self {
             SolanaRpcUrl::Localhost => SOLANA_LOCALHOST,
             SolanaRpcUrl::Devnet => SOLANA_DEVNET,
-            SolanaRpcUrl::MainnetBeta => SOLANA_MAINNET_BETA,
+            SolanaRpcUrl::Mainnet => SOLANA_MAINNET,
         }
     }
 }
@@ -116,8 +116,8 @@ impl Plugin for SolanaPlugin {
 
 fn add_mainnet_connection(mut commands: Commands) {
     commands.spawn(Solana {
-        rpc: SolanaRpcUrl::MainnetBeta,
-        client: RpcClient::new(SolanaRpcUrl::MainnetBeta.as_str()),
+        rpc: SolanaRpcUrl::Mainnet,
+        client: RpcClient::new(SolanaRpcUrl::Mainnet.as_str()),
         faucet_on: true,
     });
 }
