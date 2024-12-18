@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y \
     libxi6 \
     libgl1 \
     libvulkan1 \
+    libwayland-client0 \
+    libwayland-dev \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/server /usr/local/bin
