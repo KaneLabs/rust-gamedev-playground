@@ -18,7 +18,8 @@ use multiplayer::network::{
     ServerChannel,
 };
 use multiplayer::player::{
-    change_fov, grab_mouse, move_player, move_player_body, player_input, spawn_player_model, spawn_view_model, CursorState
+    change_fov, grab_mouse, move_player, move_player_body, player_input, spawn_player_model,
+    spawn_view_model, CursorState,
 };
 use multiplayer::world::{spawn_lights, spawn_world_model};
 use multiplayer::{
@@ -199,8 +200,11 @@ fn client_sync_players(
                 rotation,
                 entity,
             } => {
-                println!("Received player create for ID: {}, our ID: {}", id, client_id);
-                
+                println!(
+                    "Received player create for ID: {}, our ID: {}",
+                    id, client_id
+                );
+
                 // If this is our own player, just store the mapping
                 if id == client_id {
                     println!("This is our own player, storing mapping");
@@ -211,37 +215,44 @@ fn client_sync_players(
                         };
                         lobby.players.insert(id, player_info);
                         network_mapping.0.insert(entity, local_player);
-                        println!("Mapped our player: server entity {:?} to client entity {:?}", entity, local_player);
+                        println!(
+                            "Mapped our player: server entity {:?} to client entity {:?}",
+                            entity, local_player
+                        );
                     } else {
                         println!("WARNING: Could not find our local player entity!");
                     }
                     continue;
                 }
-                
+
                 println!("Spawning other player {} at {:?}", id, translation);
-                
+
                 let transform = Transform {
                     translation: Vec3::new(translation[0], translation[1], translation[2]),
                     rotation: Quat::from_array(rotation),
                     ..default()
                 };
-                
+
                 // Use the shared player model function
                 let client_entity = spawn_player_model(
                     &mut commands,
                     &mut meshes,
                     &mut materials,
                     transform,
+                    id,
                     false, // not local player
                 );
-                
+
                 let player_info = PlayerInfo {
                     server_entity: entity,
                     client_entity,
                 };
                 lobby.players.insert(id, player_info);
                 network_mapping.0.insert(entity, client_entity);
-                println!("Added player {} to lobby with client entity {:?}", id, client_entity);
+                println!(
+                    "Added player {} to lobby with client entity {:?}",
+                    id, client_entity
+                );
             }
             ServerMessages::PlayerRemove { id } => {
                 println!("Player {} disconnected.", id);

@@ -269,18 +269,18 @@ pub fn spawn_player_model(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     transform: Transform,
+    client_id: ClientId,
     is_local_player: bool,
 ) -> Entity {
-    let mut player_entity = commands.spawn((
-        // Common components for all players
-        Mesh3d(meshes.add(Cuboid::new(0.5, 1.8, 0.5))), // Player body
-        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.2, 0.2))), // Red color
-        transform,
-    ));
-
-    // For local player, add first-person view components
     if is_local_player {
-        player_entity
+        // Local player with first-person view
+        commands
+            .spawn((
+                Player { id: client_id },
+                CameraSensitivity::default(),
+                transform,
+                ControlledPlayer,
+            ))
             .with_children(|parent| {
                 // Camera
                 parent.spawn((
@@ -291,30 +291,65 @@ pub fn spawn_player_model(
                     }),
                 ));
 
-                // First-person view model (gun/bat)
+                // First-person view model (gun)
                 parent.spawn((
                     Mesh3d(meshes.add(Cuboid::new(0.1, 0.1, 0.5))),
-                    MeshMaterial3d(materials.add(Color::srgb(1.0, 0.0, 0.0))), // Red for local
+                    MeshMaterial3d(materials.add(Color::srgb(1.0, 0.0, 0.0))),
                     Transform::from_xyz(0.5, -0.4, -0.8)
                         .with_rotation(Quat::from_rotation_x(-0.2)),
                 ));
             })
-            .insert(ControlledPlayer)
-            .insert(CameraSensitivity::default())
             .id()
     } else {
-        // For other players, add third-person view components
-        player_entity
+        // Other players with third-person view
+        commands
+            .spawn((
+                Mesh3d(meshes.add(Cuboid::new(0.5, 1.8, 0.5))), // Player body
+                MeshMaterial3d(materials.add(Color::srgb(0.8, 0.2, 0.2))), // Red color
+                transform,
+            ))
             .with_children(|parent| {
-                // Third-person visible gun/bat
+                // Third-person visible gun - FIX: Position in front of player
                 parent.spawn((
                     Mesh3d(meshes.add(Cuboid::new(0.1, 0.1, 0.5))),
-                    MeshMaterial3d(materials.add(Color::srgb(0.3, 0.3, 0.3))), // Gray for others
-                    // Position the gun/bat to be visible to others and point forward
-                    Transform::from_xyz(0.3, 0.0, 0.5)
-                        .with_rotation(Quat::from_rotation_y(0.0)),
+                    MeshMaterial3d(materials.add(Color::srgb(0.3, 0.3, 0.3))),
+                    // Position the gun in front of the player (not behind)
+                    Transform::from_xyz(0.0, 0.0, -0.5), // Forward direction is -Z
                 ));
             })
             .id()
     }
+}
+
+// Player model constants
+pub const PLAYER_WIDTH: f32 = 0.5;
+pub const PLAYER_HEIGHT: f32 = 1.8;
+pub const PLAYER_DEPTH: f32 = 0.5;
+
+// Gun dimensions
+pub const GUN_WIDTH: f32 = 0.1;
+pub const GUN_HEIGHT: f32 = 0.1;
+pub const GUN_LENGTH: f32 = 0.5;
+
+// Position constants
+pub const SHOULDER_HEIGHT_RATIO: f32 = 0.7; // Shoulder at 70% of player height
+pub const ARM_EXTENSION_RATIO: f32 = 0.6;   // How far the arm extends from center
+
+pub fn get_first_person_gun_transform() -> Transform {
+    Transform::from_xyz(0.5, -0.4, -0.8)
+        .with_rotation(Quat::from_rotation_x(-0.2))
+}
+
+pub fn get_third_person_gun_transform() -> Transform {
+    // Calculate shoulder height
+    let shoulder_height = (PLAYER_HEIGHT * SHOULDER_HEIGHT_RATIO) - (PLAYER_HEIGHT / 2.0);
+    
+    // Calculate arm extension
+    let arm_extension = (PLAYER_WIDTH / 2.0) * ARM_EXTENSION_RATIO;
+    
+    Transform::from_xyz(
+        arm_extension,                // Right side
+        shoulder_height,              // At shoulder height
+        -(PLAYER_DEPTH / 2.0) - 0.1   // In front of player
+    )
 }
