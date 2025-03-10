@@ -116,8 +116,6 @@ fn main() {
 fn server_update_system(
     mut server_events: EventReader<ServerEvent>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut lobby: ResMut<ServerLobby>,
     mut server: ResMut<RenetServer>,
     players: Query<(Entity, &Player, &Transform)>,
@@ -127,44 +125,47 @@ fn server_update_system(
             ServerEvent::ClientConnected { client_id } => {
                 println!("Player {} connected.", client_id);
 
-                // Initialize other players for this new client
+                // First, send all existing players to the new client
                 for (entity, player, transform) in players.iter() {
+                    println!("Sending existing player {} to new client {}", player.id, client_id);
                     let translation: [f32; 3] = transform.translation.into();
                     let rotation: [f32; 4] = transform.rotation.into();
+                    
                     let message = bincode::serialize(&ServerMessages::PlayerCreate {
                         id: player.id,
                         entity,
                         translation,
                         rotation,
-                    })
-                    .unwrap();
+                    }).unwrap();
+                    
+                    // Send this existing player to the new client
                     server.send_message(*client_id, ServerChannel::ServerMessages, message);
                 }
 
-                // Spawn new player
-                let transform = Transform::from_scale(PLAYER_SPAWN_POSITION);
+                // Then spawn the new player
+                let transform = Transform::from_translation(PLAYER_SPAWN_POSITION);
                 let player_entity = commands
                     .spawn((
-                        Mesh3d(meshes.add(Mesh::from(Capsule3d::default()))),
-                        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
+                        Player { id: *client_id },
                         transform,
+                        PlayerInput::default(),
+                        Velocity(Vec3::ZERO),
                     ))
-                    .insert(PlayerInput::default())
-                    .insert(Velocity::default())
-                    .insert(Player { id: *client_id })
                     .id();
-
+                
                 lobby.players.insert(*client_id, player_entity);
-
+                
+                // Broadcast the new player to ALL clients (including the new one)
                 let translation: [f32; 3] = transform.translation.into();
                 let rotation: [f32; 4] = transform.rotation.into();
+                
                 let message = bincode::serialize(&ServerMessages::PlayerCreate {
                     id: *client_id,
                     entity: player_entity,
                     translation,
                     rotation,
-                })
-                .unwrap();
+                }).unwrap();
+                
                 server.broadcast_message(ServerChannel::ServerMessages, message);
             }
             ServerEvent::ClientDisconnected { client_id, reason } => {

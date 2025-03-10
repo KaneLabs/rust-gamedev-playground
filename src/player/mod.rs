@@ -52,7 +52,7 @@ use bevy_renet::renet::ClientId;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    network::{CurrentClientId, ServerLobby},
+    network::{ControlledPlayer, CurrentClientId, ServerLobby},
     world::WorldModelCamera,
 };
 
@@ -260,5 +260,61 @@ pub fn grab_mouse(
 
     if mouse.just_pressed(MouseButton::Left) && !cursor_state.locked {
         cursor_state.locked = true;
+    }
+}
+
+// Add this function to create a consistent player model
+pub fn spawn_player_model(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    transform: Transform,
+    is_local_player: bool,
+) -> Entity {
+    let mut player_entity = commands.spawn((
+        // Common components for all players
+        Mesh3d(meshes.add(Cuboid::new(0.5, 1.8, 0.5))), // Player body
+        MeshMaterial3d(materials.add(Color::srgb(0.8, 0.2, 0.2))), // Red color
+        transform,
+    ));
+
+    // For local player, add first-person view components
+    if is_local_player {
+        player_entity
+            .with_children(|parent| {
+                // Camera
+                parent.spawn((
+                    Camera3d::default(),
+                    Projection::Perspective(PerspectiveProjection {
+                        fov: 90.0_f32.to_radians(),
+                        ..default()
+                    }),
+                ));
+
+                // First-person view model (gun/bat)
+                parent.spawn((
+                    Mesh3d(meshes.add(Cuboid::new(0.1, 0.1, 0.5))),
+                    MeshMaterial3d(materials.add(Color::srgb(1.0, 0.0, 0.0))), // Red for local
+                    Transform::from_xyz(0.5, -0.4, -0.8)
+                        .with_rotation(Quat::from_rotation_x(-0.2)),
+                ));
+            })
+            .insert(ControlledPlayer)
+            .insert(CameraSensitivity::default())
+            .id()
+    } else {
+        // For other players, add third-person view components
+        player_entity
+            .with_children(|parent| {
+                // Third-person visible gun/bat
+                parent.spawn((
+                    Mesh3d(meshes.add(Cuboid::new(0.1, 0.1, 0.5))),
+                    MeshMaterial3d(materials.add(Color::srgb(0.3, 0.3, 0.3))), // Gray for others
+                    // Position the gun/bat to be visible to others and point forward
+                    Transform::from_xyz(0.3, 0.0, 0.5)
+                        .with_rotation(Quat::from_rotation_y(0.0)),
+                ));
+            })
+            .id()
     }
 }
