@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use bevy::window::PrimaryWindow;
+use bevy::input::mouse::MouseMotion;
+use bevy::window::{CursorGrabMode, PrimaryWindow, WindowResized};
 use bevy::{
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     prelude::Vec3,
@@ -16,7 +17,10 @@ use multiplayer::network::{
     ClientChannel, ClientLobby, ControlledPlayer, CurrentClientId, NetworkMapping, PlayerInfo,
     ServerChannel,
 };
-use multiplayer::player::{change_fov, move_player, move_player_body, spawn_view_model, CursorState, grab_mouse};
+use multiplayer::player::{
+    change_fov, grab_mouse, move_player, move_player_body, player_input, spawn_view_model,
+    CursorState,
+};
 use multiplayer::world::{spawn_lights, spawn_world_model};
 use multiplayer::{
     network::{connection_config, NetworkedEntities, ServerMessages},
@@ -132,56 +136,32 @@ fn main() {
     app.insert_resource(NetworkMapping::default());
     app.insert_resource(CurrentClientId(0));
 
-    app.add_systems(Startup, (spawn_view_model, spawn_world_model, spawn_lights));
+    app.add_systems(Startup, (spawn_view_model, spawn_world_model));
 
     app.insert_resource(CursorState::default());
 
-    app.add_systems(Update, (
-        player_input,
-        move_player,
-        move_player_body,
-        grab_mouse,
-        change_fov,
-    ));
+    app.add_systems(
+        Update,
+        (
+            player_input,
+            move_player,
+            move_player_body,
+            grab_mouse,
+            change_fov,
+        ),
+    );
 
-    // app.add_systems(Update, (player_input, camera_follow, update_target_system));
-    // app.add_systems(
-    //     Update,
-    //     (
-    //         client_send_input,
-    //         // client_send_player_commands,
-    //         // client_sync_players,
-    //     )
-    //         .in_set(Connected),
-    // );
-
-    // app.add_systems(Startup, (setup_level, setup_camera, setup_target));
+    app.add_systems(
+        Update,
+        (
+            client_send_input,
+            client_send_player_commands,
+            client_sync_players,
+        )
+            .in_set(Connected),
+    );
 
     app.run();
-}
-
-fn player_input(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut player_input: ResMut<PlayerInput>,
-    mouse_button_input: Res<ButtonInput<MouseButton>>,
-    target_query: Query<&Transform, With<Target>>,
-    mut player_commands: EventWriter<PlayerCommand>,
-) {
-    player_input.left =
-        keyboard_input.pressed(KeyCode::KeyA) || keyboard_input.pressed(KeyCode::ArrowLeft);
-    player_input.right =
-        keyboard_input.pressed(KeyCode::KeyD) || keyboard_input.pressed(KeyCode::ArrowRight);
-    player_input.up =
-        keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp);
-    player_input.down =
-        keyboard_input.pressed(KeyCode::KeyS) || keyboard_input.pressed(KeyCode::ArrowDown);
-
-    // if mouse_button_input.just_pressed(MouseButton::Left) {
-        // let target_transform = target_query.single();
-        // player_commands.send(PlayerCommand::BasicAttack {
-        //     cast_at: target_transform.translation,
-        // });
-    // }
 }
 
 fn client_send_input(player_input: Res<PlayerInput>, mut client: ResMut<RenetClient>) {
@@ -216,13 +196,22 @@ fn client_sync_players(
             ServerMessages::PlayerCreate {
                 id,
                 translation,
+                rotation,
                 entity,
             } => {
+                // Skip if it's our own player
+                if id == client_id {
+                    continue;
+                }
                 println!("Player {} connected.", id);
                 let mut client_entity = commands.spawn((
                     Mesh3d(meshes.add(Mesh::from(Capsule3d::default()))),
                     MeshMaterial3d(materials.add(Color::srgb(0.8, 0.7, 0.6))),
-                    Transform::from_xyz(translation[0], translation[1], translation[2]),
+                    Transform {
+                        translation: Vec3::new(translation[0], translation[1], translation[2]),
+                        rotation: Quat::from_array(rotation),
+                        ..default()
+                    },
                 ));
 
                 if client_id == id {
@@ -247,22 +236,6 @@ fn client_sync_players(
                     network_mapping.0.remove(&server_entity);
                 }
             }
-            ServerMessages::SpawnProjectile {
-                entity,
-                translation,
-            } => {
-                let projectile_entity = commands.spawn((
-                    Mesh3d(meshes.add(Mesh::from(Sphere::new(0.1)))),
-                    MeshMaterial3d(materials.add(Color::srgb(1.0, 0.0, 0.0))),
-                    Transform::from_translation(translation.into()),
-                ));
-                network_mapping.0.insert(entity, projectile_entity.id());
-            }
-            ServerMessages::DespawnProjectile { entity } => {
-                if let Some(entity) = network_mapping.0.remove(&entity) {
-                    commands.entity(entity).despawn();
-                }
-            }
         }
     }
 
@@ -271,10 +244,17 @@ fn client_sync_players(
 
         for i in 0..networked_entities.entities.len() {
             if let Some(entity) = network_mapping.0.get(&networked_entities.entities[i]) {
-                let translation = networked_entities.translations[i].into();
+                // Skip updates for our own player
+                if let Some(player_info) = lobby.players.get(&client_id) {
+                    if player_info.client_entity == *entity {
+                        continue;
+                    }
+                }
+
                 let transform = Transform {
-                    translation,
-                    ..Default::default()
+                    translation: networked_entities.translations[i].into(),
+                    rotation: Quat::from_array(networked_entities.rotations[i]),
+                    ..default()
                 };
                 commands.entity(*entity).insert(transform);
             }
@@ -282,64 +262,43 @@ fn client_sync_players(
     }
 }
 
-#[derive(Component)]
-struct Target;
+// #[derive(Component)]
+// struct Target;
 
-fn update_target_system(
-    primary_window: Query<&Window, With<PrimaryWindow>>,
-    mut target_query: Query<&mut Transform, With<Target>>,
-    camera_query: Query<(&Camera, &GlobalTransform)>,
-) {
-    let (camera, camera_transform) = camera_query.single();
-    let mut target_transform = target_query.single_mut();
-    if let Some(cursor_pos) = primary_window.single().cursor_position() {
-        if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) {
-            if let Some(distance) = ray.intersect_plane(Vec3::Y, InfinitePlane3d::new(Vec3::Y)) {
-                target_transform.translation = ray.direction * distance + ray.origin;
-            }
-        }
-    }
-}
+// fn update_target_system(
+//     primary_window: Query<&Window, With<PrimaryWindow>>,
+//     mut target_query: Query<&mut Transform, With<Target>>,
+//     camera_query: Query<(&Camera, &GlobalTransform)>,
+// ) {
+//     let (camera, camera_transform) = camera_query.single();
+//     let mut target_transform = target_query.single_mut();
+//     if let Some(cursor_pos) = primary_window.single().cursor_position() {
+//         if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) {
+//             if let Some(distance) = ray.intersect_plane(Vec3::Y, InfinitePlane3d::new(Vec3::Y)) {
+//                 target_transform.translation = ray.direction * distance + ray.origin;
+//             }
+//         }
+//     }
+// }
 
-fn setup_camera(mut commands: Commands) {
-    commands.spawn((
-        Camera3d::default(),
-        Transform::from_xyz(0., 8.0, 2.5).looking_at(Vec3::new(0.0, 0.5, 0.0), Vec3::Y),
-    ));
-}
-
-fn setup_target(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands
-        .spawn((
-            Mesh3d(meshes.add(Mesh::from(Sphere::new(0.1)))),
-            MeshMaterial3d(materials.add(Color::srgb(1.0, 0.0, 0.0))),
-            Transform::from_xyz(0.0, 0., 0.0),
-        ))
-        .insert(Target);
-}
-
-fn camera_follow(
-    time: Res<Time>,
-    mut camera_query: Query<&mut Transform, (With<Camera>, Without<ControlledPlayer>)>,
-    player_query: Query<&Transform, With<ControlledPlayer>>,
-) {
-    let mut cam_transform = camera_query.single_mut();
-    if let Ok(player_transform) = player_query.get_single() {
-        let eye = Vec3::new(
-            player_transform.translation.x,
-            8.,
-            player_transform.translation.z + 2.5,
-        );
-        if eye.distance(cam_transform.translation) > 10.0 {
-            cam_transform.translation = eye;
-        } else {
-            cam_transform
-                .translation
-                .smooth_nudge(&eye, 8.0, time.delta_secs());
-        }
-    }
-}
+// fn camera_follow(
+//     time: Res<Time>,
+//     mut camera_query: Query<&mut Transform, (With<Camera>, Without<ControlledPlayer>)>,
+//     player_query: Query<&Transform, With<ControlledPlayer>>,
+// ) {
+//     let mut cam_transform = camera_query.single_mut();
+//     if let Ok(player_transform) = player_query.get_single() {
+//         let eye = Vec3::new(
+//             player_transform.translation.x,
+//             8.,
+//             player_transform.translation.z + 2.5,
+//         );
+//         if eye.distance(cam_transform.translation) > 10.0 {
+//             cam_transform.translation = eye;
+//         } else {
+//             cam_transform
+//                 .translation
+//                 .smooth_nudge(&eye, 8.0, time.delta_secs());
+//         }
+//     }
+// }

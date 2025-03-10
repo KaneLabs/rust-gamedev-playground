@@ -35,6 +35,8 @@ pub fn spawn_world_model(
         MeshMaterial3d(material),
         Transform::from_xyz(0.75, 1.75, 0.0),
     ));
+
+    spawn_lights(commands)
 }
 
 pub fn spawn_lights(mut commands: Commands) {

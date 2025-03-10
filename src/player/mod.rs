@@ -45,7 +45,7 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
-    color::palettes::tailwind, input::mouse::AccumulatedMouseMotion, pbr::NotShadowCaster,
+    core_pipeline::core_3d::Camera3d, input::mouse::AccumulatedMouseMotion, pbr::NotShadowCaster,
     prelude::*, render::view::RenderLayers,
 };
 use bevy_renet::renet::ClientId;
@@ -67,6 +67,8 @@ pub struct PlayerInput {
     pub down: bool,
     pub left: bool,
     pub right: bool,
+    pub yaw: f32,
+    pub pitch: f32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Event)]
@@ -98,13 +100,32 @@ pub const VIEW_MODEL_RENDER_LAYER: usize = 1;
 
 #[derive(Resource)]
 pub struct CursorState {
-    locked: bool,
+    pub locked: bool,
 }
 
 impl Default for CursorState {
     fn default() -> Self {
         Self { locked: true }
     }
+}
+
+// Add these constants for spawn positions
+pub const PLAYER_SPAWN_POSITION: Vec3 = Vec3::new(0.0, 0.51, 0.0);
+pub const PLAYER_SPAWN_HEIGHT: f32 = 0.51;
+
+// Optional: Define multiple spawn points if needed
+pub const SPAWN_POINTS: [Vec3; 4] = [
+    Vec3::new(0.0, PLAYER_SPAWN_HEIGHT, 0.0),
+    Vec3::new(5.0, PLAYER_SPAWN_HEIGHT, 0.0),
+    Vec3::new(0.0, PLAYER_SPAWN_HEIGHT, 5.0),
+    Vec3::new(5.0, PLAYER_SPAWN_HEIGHT, 5.0),
+];
+
+// Function to get a spawn position based on player ID
+pub fn get_spawn_position(player_id: u64) -> Vec3 {
+    // Use player ID to select a spawn point
+    let index = (player_id % SPAWN_POINTS.len() as u64) as usize;
+    SPAWN_POINTS[index]
 }
 
 pub fn spawn_view_model(
@@ -120,36 +141,32 @@ pub fn spawn_view_model(
             Transform::from_xyz(0.0, 1.0, 0.0),
         ))
         .with_children(|parent| {
-            // Just one camera with fixed FOV
-            parent.spawn(Camera3dBundle {
-                projection: Projection::Perspective(PerspectiveProjection {
+            // Camera with fixed FOV
+            parent.spawn((
+                Camera3d::default(),
+                Projection::Perspective(PerspectiveProjection {
                     fov: 90.0_f32.to_radians(),
                     ..default()
                 }),
-                ..default()
-            });
+            ));
+
+            // View model (gun)
+            parent.spawn((
+                Mesh3d(meshes.add(Cuboid::new(0.1, 0.1, 0.5))),
+                MeshMaterial3d(materials.add(Color::srgb(1.0, 0.0, 0.0))),
+                Transform::from_xyz(0.5, -0.4, -0.8)
+                    .with_rotation(Quat::from_rotation_x(-0.2)),
+            ));
         });
 }
 
 pub fn move_player(
-    accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
-    player: Single<(&mut Transform, &CameraSensitivity), With<Player>>,
+    player_input: Res<PlayerInput>,
+    mut player: Query<&mut Transform, With<Player>>,
 ) {
-    let (mut transform, camera_sensitivity) = player.into_inner();
-    let delta = accumulated_mouse_motion.delta;
-
-    if delta != Vec2::ZERO {
-        let delta_yaw = -delta.x * camera_sensitivity.x;
-        let delta_pitch = -delta.y * camera_sensitivity.y;
-
-        let (mut yaw, mut pitch, roll) = transform.rotation.to_euler(EulerRot::YXZ);
-        yaw += delta_yaw;
-        
-        // Prevent looking too far up/down
-        const PITCH_LIMIT: f32 = FRAC_PI_2 - 0.01;
-        pitch = (pitch + delta_pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
-
-        transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll);
+    if let Ok(mut transform) = player.get_single_mut() {
+        transform.rotation =
+            Quat::from_euler(EulerRot::YXZ, player_input.yaw, player_input.pitch, 0.0);
     }
 }
 
@@ -161,15 +178,16 @@ pub fn move_player_body(
     let mut transform = player.into_inner();
     let x = (player_input.right as i8 - player_input.left as i8) as f32;
     let z = (player_input.down as i8 - player_input.up as i8) as f32;
-    
+
     if x != 0.0 || z != 0.0 {
         // Get forward and right vectors from the camera's rotation
         let forward = transform.forward();
         let right = transform.right();
-        
+
         // Calculate movement direction relative to camera
-        let movement = (forward * -z + right * x).normalize() * PLAYER_MOVE_SPEED * time.delta_secs();
-        
+        let movement =
+            (forward * -z + right * x).normalize() * PLAYER_MOVE_SPEED * time.delta_secs();
+
         // Only move in the horizontal plane (prevent flying/sinking)
         transform.translation += Vec3::new(movement.x, 0.0, movement.z);
     }
@@ -198,13 +216,27 @@ pub fn change_fov(
 pub fn player_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut player_input: ResMut<PlayerInput>,
+    accumulated_mouse_motion: Res<AccumulatedMouseMotion>,
+    camera_sensitivity: Query<&CameraSensitivity, With<Player>>,
+    cursor_state: Res<CursorState>,
 ) {
+    // Original keyboard input handling
     player_input.left = keyboard_input.pressed(KeyCode::KeyA);
     player_input.right = keyboard_input.pressed(KeyCode::KeyD);
     player_input.up = keyboard_input.pressed(KeyCode::KeyW);
     player_input.down = keyboard_input.pressed(KeyCode::KeyS);
 
-    //
+    // Only update rotation when cursor is locked
+    if cursor_state.locked {
+        if let Ok(sensitivity) = camera_sensitivity.get_single() {
+            let delta = accumulated_mouse_motion.delta;
+            if delta != Vec2::ZERO {
+                player_input.yaw -= delta.x * sensitivity.x;
+                player_input.pitch = (player_input.pitch - delta.y * sensitivity.y)
+                    .clamp(-FRAC_PI_2 + 0.01, FRAC_PI_2 - 0.01);
+            }
+        }
+    }
 }
 
 pub fn grab_mouse(
@@ -216,16 +248,8 @@ pub fn grab_mouse(
     let mut window = windows.single_mut();
 
     if cursor_state.locked {
-        // Force cursor to center
         window.cursor_options.grab_mode = bevy::window::CursorGrabMode::Locked;
         window.cursor_options.visible = false;
-        
-        // Get window center
-        let half_width = window.resolution.width() / 2.0;
-        let half_height = window.resolution.height() / 2.0;
-        
-        // Set cursor position to center
-        window.set_cursor_position(Some(Vec2::new(half_width, half_height)));
     }
 
     if key.just_pressed(KeyCode::Escape) {

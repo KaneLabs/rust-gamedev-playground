@@ -47,23 +47,18 @@ pub enum ServerMessages {
         entity: Entity,
         id: ClientId,
         translation: [f32; 3],
+        rotation: [f32; 4],
     },
     PlayerRemove {
         id: ClientId,
-    },
-    SpawnProjectile {
-        entity: Entity,
-        translation: [f32; 3],
-    },
-    DespawnProjectile {
-        entity: Entity,
     },
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct NetworkedEntities {
     pub entities: Vec<Entity>,
-    pub translations: Vec<[f32; 3]>,
+    pub translations: Vec<[f32; 3]>,     // [x, y, z] positions
+    pub rotations: Vec<[f32; 4]>,        // [x, y, z, w] quaternion rotations
 }
 
 impl From<ClientChannel> for u8 {
